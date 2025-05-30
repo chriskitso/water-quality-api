@@ -1,50 +1,62 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-from joblib import load
+import joblib
+import numpy as np
 import pandas as pd
 
-from database import SessionLocal, create_tables
-from models import WaterQualityInput, PredictionLog
+from sqlalchemy.orm import Session
+from database import get_db
+from models import PredictionLog
 
-# Initialize FastAPI app
+# Define input data schema
+class WaterQualityInput(BaseModel):
+    pH: float
+    WaterTemp: float
+    Turbidity: float
+    TDS: float
+
+# Create FastAPI app instance
 app = FastAPI()
 
 # Load trained XGBoost model
-model = load("xgboost_water_quality_model.joblib")
-
-# Create database tables if they don't exist
-create_tables()
+model = joblib.load("xgboost_water_quality_model.joblib")
 
 # Prediction endpoint
 @app.post("/predict")
-def predict(data: WaterQualityInput):
+def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
     try:
-        # Convert input to DataFrame for the model
-        input_df = pd.DataFrame([data.dict()])
+        # Convert input to DataFrame
+        input_df = pd.DataFrame([{
+            "pH": data.pH,
+            "WaterTemp": data.WaterTemp,
+            "Turbidity": data.Turbidity,
+            "TDS": data.TDS
+        }])
 
         # Make prediction
-        prediction = model.predict(input_df)[0]
-        status = "Safe" if prediction == 1 else "Unsafe"
-        recommendation = (
-            "✅ Safe – Water is within recommended quality standards."
-            if status == "Safe"
-            else "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
-        )
+        prediction = model.predict(input_df)
+        prediction = int(prediction[0])  # Convert array to integer
 
-        # Log to the database
-        db = SessionLocal()
+        # Decide on recommendation
+        if prediction == 1:
+            status = "Safe"
+            recommendation = "✅ Safe – Water is within recommended quality standards."
+        else:
+            status = "Unsafe"
+            recommendation = "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
+
+        # Log into the database
         log = PredictionLog(
             pH=data.pH,
             WaterTemp=data.WaterTemp,
             Turbidity=data.Turbidity,
             TDS=data.TDS,
             prediction=status,
-            recommendation=recommendation,
+            recommendation=recommendation
         )
         db.add(log)
         db.commit()
         db.refresh(log)
-        db.close()
 
         return {
             "prediction": status,
@@ -53,58 +65,9 @@ def predict(data: WaterQualityInput):
 
     except Exception as e:
         return {"error": str(e)}
-from fastapi import FastAPI
-from pydantic import BaseModel
-from joblib import load
-import pandas as pd
 
-from database import SessionLocal, create_tables
-from models import WaterQualityInput, PredictionLog
-
-# Initialize FastAPI app
-app = FastAPI()
-
-# Load trained XGBoost model
-model = load("xgboost_water_quality_model.joblib")
-
-# Create database tables if they don't exist
-create_tables()
-
-# Prediction endpoint
-@app.post("/predict")
-def predict(data: WaterQualityInput):
-    try:
-        # Convert input to DataFrame for the model
-        input_df = pd.DataFrame([data.dict()])
-
-        # Make prediction
-        prediction = model.predict(input_df)[0]
-        status = "Safe" if prediction == 1 else "Unsafe"
-        recommendation = (
-            "✅ Safe – Water is within recommended quality standards."
-            if status == "Safe"
-            else "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
-        )
-
-        # Log to the database
-        db = SessionLocal()
-        log = PredictionLog(
-            pH=data.pH,
-            WaterTemp=data.WaterTemp,
-            Turbidity=data.Turbidity,
-            TDS=data.TDS,
-            prediction=status,
-            recommendation=recommendation,
-        )
-        db.add(log)
-        db.commit()
-        db.refresh(log)
-        db.close()
-
-        return {
-            "prediction": status,
-            "recommendation": recommendation
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
+# New route: Get prediction logs
+@app.get("/logs")
+def get_logs(db: Session = Depends(get_db)):
+    logs = db.query(PredictionLog).all()
+    return logs
