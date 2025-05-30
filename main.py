@@ -1,12 +1,11 @@
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 import joblib
-import numpy as np
 import pandas as pd
-
 from sqlalchemy.orm import Session
 from database import get_db
 from models import PredictionLog
+from datetime import datetime
 
 # Define input data schema
 class WaterQualityInput(BaseModel):
@@ -52,7 +51,8 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
             Turbidity=data.Turbidity,
             TDS=data.TDS,
             prediction=status,
-            recommendation=recommendation
+            recommendation=recommendation,
+            
         )
         db.add(log)
         db.commit()
@@ -66,7 +66,7 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
     except Exception as e:
         return {"error": str(e)}
 
-# New route: Get prediction logs
+# Route: Get prediction logs
 @app.get("/logs")
 def get_logs(db: Session = Depends(get_db)):
     logs = db.query(PredictionLog).all()

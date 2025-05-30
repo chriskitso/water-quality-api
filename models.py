@@ -1,22 +1,17 @@
-from pydantic import BaseModel
-from sqlalchemy import Column, Float, Integer, String
-from database import Base
+from sqlalchemy import Column, Integer, Float, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
 
-# Pydantic model for request validation
-class WaterQualityInput(BaseModel):
-    pH: float
-    WaterTemp: float
-    Turbidity: float
-    TDS: float
+Base = declarative_base()
 
-# SQLAlchemy model for logging to the database
 class PredictionLog(Base):
-    __tablename__ = "predictions"
+    __tablename__ = "prediction_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    pH = Column(Float)
-    WaterTemp = Column(Float)
-    Turbidity = Column(Float)
-    TDS = Column(Float)
-    prediction = Column(String)
-    recommendation = Column(String)
+    pH = Column(Float, nullable=False)
+    WaterTemp = Column(Float, nullable=False)
+    Turbidity = Column(Float, nullable=False)
+    TDS = Column(Float, nullable=False)
+    prediction = Column(String, nullable=False)
+    recommendation = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
