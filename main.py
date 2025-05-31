@@ -1,73 +1,59 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import joblib
-import pandas as pd
-from sqlalchemy.orm import Session
-from database import get_db, engine
-from models import PredictionLog, Base
 from datetime import datetime
+import joblib
 
-# ✅ Automatically create tables at startup
-Base.metadata.create_all(bind=engine)
-
-# Define input data schema
-class WaterQualityInput(BaseModel):
-    pH: float
-    WaterTemp: float
-    Turbidity: float
-    TDS: float
-
-# Create FastAPI app instance
 app = FastAPI()
 
-# Load trained XGBoost model
-model = joblib.load("xgboost_water_quality_model.joblib")
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["http://localhost:3000"] for strict security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Prediction endpoint
+# Load your model
+model = joblib.load("xgboost_model.pkl")
+
+# Define schema for incoming sensor data
+class SensorData(BaseModel):
+    TDS: float
+    Turbidity: float
+    pH: float
+    WaterTemp: float
+
+# Sample logs store
+logs = []
+
 @app.post("/predict")
-def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
-    try:
-        input_df = pd.DataFrame([{
-            "pH": data.pH,
-            "WaterTemp": data.WaterTemp,
-            "Turbidity": data.Turbidity,
-            "TDS": data.TDS
-        }])
+def predict(data: SensorData):
+    features = [[data.TDS, data.Turbidity, data.pH, data.WaterTemp]]
+    prediction = model.predict(features)[0]
 
-        prediction = model.predict(input_df)
-        prediction = int(prediction[0])
+    # Generate recommendation
+    recommendation = (
+        "✅ Safe – Water is within recommended quality standards."
+        if prediction == "Safe"
+        else "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
+    )
 
-        if prediction == 1:
-            status = "Safe"
-            recommendation = "✅ Safe – Water is within recommended quality standards."
-        else:
-            status = "Unsafe"
-            recommendation = "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
+    log = {
+        "id": len(logs) + 1,
+        "TDS": data.TDS,
+        "Turbidity": data.Turbidity,
+        "pH": data.pH,
+        "WaterTemp": data.WaterTemp,
+        "prediction": prediction,
+        "recommendation": recommendation,
+        "timestamp": datetime.utcnow()
+    }
 
-        # Log prediction
-        log = PredictionLog(
-            pH=data.pH,
-            WaterTemp=data.WaterTemp,
-            Turbidity=data.Turbidity,
-            TDS=data.TDS,
-            prediction=status,
-            recommendation=recommendation,
-            timestamp=datetime.utcnow()
-        )
-        db.add(log)
-        db.commit()
-        db.refresh(log)
+    logs.append(log)
+    return log
 
-        return {
-            "prediction": status,
-            "recommendation": recommendation
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-# View all logs
 @app.get("/logs")
-def get_logs(db: Session = Depends(get_db)):
-    logs = db.query(PredictionLog).all()
+def get_logs():
     return logs
