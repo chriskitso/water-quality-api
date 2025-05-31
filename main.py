@@ -3,9 +3,12 @@ from pydantic import BaseModel
 import joblib
 import pandas as pd
 from sqlalchemy.orm import Session
-from database import get_db
-from models import PredictionLog
+from database import get_db, engine
+from models import PredictionLog, Base
 from datetime import datetime
+
+# ✅ Automatically create tables at startup
+Base.metadata.create_all(bind=engine)
 
 # Define input data schema
 class WaterQualityInput(BaseModel):
@@ -24,7 +27,6 @@ model = joblib.load("xgboost_water_quality_model.joblib")
 @app.post("/predict")
 def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
     try:
-        # Convert input to DataFrame
         input_df = pd.DataFrame([{
             "pH": data.pH,
             "WaterTemp": data.WaterTemp,
@@ -32,11 +34,9 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
             "TDS": data.TDS
         }])
 
-        # Make prediction
         prediction = model.predict(input_df)
-        prediction = int(prediction[0])  # Convert array to integer
+        prediction = int(prediction[0])
 
-        # Decide on recommendation
         if prediction == 1:
             status = "Safe"
             recommendation = "✅ Safe – Water is within recommended quality standards."
@@ -44,7 +44,7 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
             status = "Unsafe"
             recommendation = "❌ Unsafe – Recommendation: Boil water or use purification before drinking."
 
-        # Log into the database
+        # Log prediction
         log = PredictionLog(
             pH=data.pH,
             WaterTemp=data.WaterTemp,
@@ -52,7 +52,7 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
             TDS=data.TDS,
             prediction=status,
             recommendation=recommendation,
-            
+            timestamp=datetime.utcnow()
         )
         db.add(log)
         db.commit()
@@ -66,7 +66,7 @@ def predict(data: WaterQualityInput, db: Session = Depends(get_db)):
     except Exception as e:
         return {"error": str(e)}
 
-# Route: Get prediction logs
+# View all logs
 @app.get("/logs")
 def get_logs(db: Session = Depends(get_db)):
     logs = db.query(PredictionLog).all()
