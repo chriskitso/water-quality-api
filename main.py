@@ -6,26 +6,26 @@ import joblib
 
 app = FastAPI()
 
-# Enable CORS
+# Enable CORS so your React app can access the API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or ["http://localhost:3000"] for strict security
+    allow_origins=["*"],  # For production, replace * with your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load your model
-model = joblib.load("xgboost_model.pkl")
+# Load your trained XGBoost model
+model = joblib.load("xgboost_water_quality_model.joblib")
 
-# Define schema for incoming sensor data
+# Define the schema for incoming sensor data
 class SensorData(BaseModel):
     TDS: float
     Turbidity: float
     pH: float
     WaterTemp: float
 
-# Sample logs store
+# In-memory storage for logs
 logs = []
 
 @app.post("/predict")
@@ -33,7 +33,6 @@ def predict(data: SensorData):
     features = [[data.TDS, data.Turbidity, data.pH, data.WaterTemp]]
     prediction = model.predict(features)[0]
 
-    # Generate recommendation
     recommendation = (
         "✅ Safe – Water is within recommended quality standards."
         if prediction == "Safe"
